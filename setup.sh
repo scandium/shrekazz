@@ -129,8 +129,11 @@ if UPSTREAM:
 opener = urllib.request.build_opener(*handlers)
 
 OS_RE = re.compile(rb"(?i)linux-[a-z0-9._\-]+")
+LINUX_WORD_RE = re.compile(rb"(?i)\blinux\b")
 HOST_RE = re.compile(rb'("hostname"\s*:\s*")[^"]*(")')
-HOST_PLAIN_RE = re.compile(r'("hostname"\s*:\s*")[^"]*(")')
+
+# canonical UA of wakatime-cli running on an arm64 MacBook
+FAKE_UA = f"wakatime/v1.113.0 ({FAKE_OS}) vscode/1.93.0 vscode-wakatime/24.4.0"
 
 
 def spoof(body: bytes) -> bytes:
@@ -142,7 +145,7 @@ def spoof(body: bytes) -> bytes:
             body = gzip.decompress(body)
         except OSError:
             return body
-    body = OS_RE.sub(FAKE_OS.encode(), body)
+    body = LINUX_WORD_RE.sub(b"MacOS", OS_RE.sub(FAKE_OS.encode(), body))
     body = HOST_RE.sub(rb"\g<1>" + FAKE_HOSTNAME.encode() + rb"\g<2>", body)
     return gzip.compress(body) if gz else body
 
@@ -161,8 +164,10 @@ class SpoofProxy(http.server.BaseHTTPRequestHandler):
             if lk in ("host", "content-length"):
                 continue
             if lk == "user-agent":
-                v = OS_RE.sub(FAKE_OS, v)
-                v = re.sub(r"(?i)\blinux\b", "macOS", v)
+                v = FAKE_UA          # full canonical replacement, no partial patches
+                headers["X-Machine-Name"] = FAKE_HOSTNAME
+            elif lk == "x-machine-name":
+                continue             # drop the real machine name header
             headers[k] = v
         if body:
             headers["Content-Length"] = str(len(body))
