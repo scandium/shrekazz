@@ -41,6 +41,7 @@ info "Installing xRDP + XFCE desktop..."
 $SUDO apt-get update -y -qq
 $SUDO apt-get install -y -qq xrdp ca-certificates curl python3
 $SUDO apt-get install -y -qq --no-install-recommends xfce4 xfce4-terminal dbus-x11
+$SUDO apt-get install -y -qq firefox file-roller ristretto
 $SUDO systemctl enable --now xrdp
 $SUDO adduser "$(id -un)" ssl-cert 2>/dev/null || true
 
