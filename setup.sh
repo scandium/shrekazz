@@ -26,6 +26,9 @@ warn() { echo -e "${C_Y}[!]${C_0} $*"; }
 die()  { echo -e "${C_R}[-]${C_0} $*" >&2; exit 1; }
 step() { echo ""; echo -e "${C_C}========== $* ==========${C_0}"; }
 
+# read from the terminal even when piped (curl ... | bash)
+ask() { read -r -p "$1" "$2" < /dev/tty || true; }
+
 SUDO=""
 [[ $EUID -ne 0 ]] && SUDO="sudo"
 
@@ -54,7 +57,7 @@ echo -e "${C_G}=====================================================${C_0}"
 # ============================================================================
 step "STEP 2 / 3  —  your turn (VS Code + WakaTime login)"
 # ============================================================================
-read -r -p "Install VS Code on this VM automatically? [Y/n]: " _vscode || true
+ask "Install VS Code on this VM automatically? [Y/n]: " _vscode
 _vscode="${_vscode:-Y}"
 if [[ "$_vscode" =~ ^[Yy] ]]; then
     info "Installing VS Code..."
@@ -74,7 +77,7 @@ echo -e "   1. Open ${C_C}VS Code${C_0}"
 echo -e "   2. Install the ${C_C}WakaTime${C_0} extension from the marketplace"
 echo -e "   3. When prompted, paste your API key / log in to your account"
 echo ""
-read -r -p "Press ENTER once you've installed WakaTime and logged in..." _
+ask "Press ENTER once you've installed WakaTime and logged in..." _
 
 # ============================================================================
 step "STEP 3 / 3  —  spoof proxy (Lappy @ macOS via Webshare)"
@@ -263,23 +266,24 @@ fi
 info "Sending one test heartbeat through the proxy..."
 API_KEY="$(grep '^api_key *=' "$CFG" | head -n1 | cut -d'=' -f2- | xargs)"
 if [[ -z "$API_KEY" || "$API_KEY" == "REPLACE_ME" ]]; then
-    warn "No API key set — skipping test heartbeat. Set it in ~/.wakatime.cfg and run:"
-    warn "  curl -s -X POST http://127.0.0.1:${PROXY_PORT}/api/v1/users/current/heartbeats.bulk \\"
-    warn "    -H \"Authorization: Basic \\$\(printf '%s' <key> | base64\)\" -H 'Content-Type: application/json' \\"
-    warn "    -d '[{\"entity\":\"test.py\",\"type\":\"file\",\"time\":\$(date +%s)}]'"
+    warn "No API key set — skipping test heartbeat. After setting your key in ~/.wakatime.cfg, test with:"
+    warn "  AUTH=\$(printf '%s' \$(grep '^api_key' ~/.wakatime.cfg | cut -d= -f2- | xargs) | base64); \\\n    curl -sS -X POST http://127.0.0.1:${PROXY_PORT}/api/v1/users/current/heartbeats.bulk \\\n    -H \"Authorization: Basic \$AUTH\" -H 'Content-Type: application/json' \\\n    -d '[{\"entity\":\"test.py\",\"type\":\"file\",\"time\":'\"\$(date +%s)\"'}]'"
 else
     AUTH_B64="$(printf '%s' "$API_KEY" | base64 | tr -d '\n')"
-    RESP="$(curl -fsS --max-time 30 -X POST \
+    HTTP_CODE=""
+    RESP="$(curl -sS --max-time 30 -w '\nHTTP_STATUS:%{http_code}' -X POST \
         "http://127.0.0.1:${PROXY_PORT}/api/v1/users/current/heartbeats.bulk" \
         -H "Authorization: Basic ${AUTH_B64}" \
         -H "Content-Type: application/json" \
         -d "[{\"entity\":\"test.py\",\"type\":\"file\",\"time\":$(date +%s),\"project\":\"setup-test\",\"is_write\":false,\"editor\":\"vscode\",\"language\":\"Python\",\"user_agent\":\"wakatime/14.0.0 (${FAKE_OS})\",\"hostname\":\"${FAKE_HOSTNAME}\"}]" 2>&1 || true)"
-    if [[ -n "$RESP" ]] && [[ "$RESP" != *curl*error* ]]; then
-        info "Test heartbeat accepted by backend ✓ (check the dashboard — should show Lappy / macOS)"
-        echo -e "    Response: ${RESP}"
+    HTTP_CODE="$(echo "$RESP" | grep -o 'HTTP_STATUS:[0-9]*' | cut -d: -f2)"
+    BODY="$(echo "$RESP" | sed 's/HTTP_STATUS:[0-9]*//')"
+    if [[ "$HTTP_CODE" == "200" || "$HTTP_CODE" == "201" ]]; then
+        info "Test heartbeat accepted ✓ (HTTP $HTTP_CODE) — check the dashboard for Lappy/macOS"
     else
-        warn "Test heartbeat didn't get a clean response — check logs: journalctl -u spoof -f"
-        echo -e "    Got: ${RESP:-<empty>}"
+        warn "Test heartbeat FAILED (HTTP ${HTTP_CODE:-none}) — response:"
+        echo    "    ${BODY:-<empty>}${RESP:+}"
+        warn "Live logs: journalctl -u spoof -f"
     fi
 fi
 
