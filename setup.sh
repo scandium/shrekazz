@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # setup.sh — one-shot Linux VM setup
-#   Step 1  Install xRDP, give you the VM's IP so you can remote in
+#   Step 1  Install xRDP + XFCE desktop, give you the VM's IP so you can remote in
 #   Step 2  Pause while YOU install VS Code + WakaTime ext & log in
 #   Step 3  Deploy the spoof proxy so the dashboard shows "Lappy"
 #           on macOS, egressing through your Webshare IP
@@ -37,11 +37,17 @@ export DEBIAN_FRONTEND=noninteractive
 # ============================================================================
 step "STEP 1 / 3  —  xRDP (remote desktop)"
 # ============================================================================
-info "Installing xRDP..."
+info "Installing xRDP + XFCE desktop..."
 $SUDO apt-get update -y -qq
 $SUDO apt-get install -y -qq xrdp ca-certificates curl python3
+$SUDO apt-get install -y -qq --no-install-recommends xfce4 xfce4-terminal dbus-x11
 $SUDO systemctl enable --now xrdp
 $SUDO adduser "$(id -un)" ssl-cert 2>/dev/null || true
+
+# make xRDP sessions start XFCE instead of a bare fallback
+echo "startxfce4" > "$HOME/.xsession"
+$SUDO sed -i 's|^test -x /etc/X11/Xsession.*|#&|' /etc/xrdp/startwm.sh 2>/dev/null || true
+$SUDO systemctl restart xrdp
 
 IP="$(curl -fsS --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}')"
 echo ""
